@@ -57,6 +57,44 @@ function estTransfers(mode, routeMins) {
   return 0;
 }
 
+// 出租车标准计价估算（基于真实里程，比线性估算更接近实际）
+// 北京规则：3km内13元，超出2.3元/km，15km后超出部分加收50%空驶费，时长按约0.5元/分钟计
+function taxiFare(city, km, mins) {
+  km = Math.max(0, km); mins = Math.max(0, mins);
+  let base, perKm, emptyAfter;
+  const c = (city || "");
+  if (c.includes("北京")) { base = 13; perKm = 2.3; emptyAfter = 15; }
+  else if (c.includes("上海")) { base = 14; perKm = 2.5; emptyAfter = 15; }
+  else if (c.includes("广州") || c.includes("深圳")) { base = 10; perKm = 2.6; emptyAfter = 25; }
+  else { base = 13; perKm = 2.3; emptyAfter = 15; } // 通用默认值
+  let fare = base;
+  const extra = Math.max(0, km - 3);
+  fare += extra * perKm;
+  if (km > emptyAfter) fare += (km - emptyAfter) * perKm * 0.5;
+  fare += mins * 0.5; // 低速等候费（简化）
+  return Math.round(fare);
+}
+
+// 北京普通地铁票价（不含机场线），按里程阶梯计价
+function beijingSubwayFare(km) {
+  if (km <= 6) return 3;
+  if (km <= 12) return 4;
+  if (km <= 22) return 5;
+  if (km <= 32) return 6;
+  return 6 + Math.ceil((km - 32) / 20);
+}
+
+// 对北京含大兴机场线的地铁路线，按真实计价规则修正票价
+function fixBeijingAirportSubwayPrice(rawPrice, totalKm, lineNames) {
+  if (rawPrice == null || totalKm == null) return rawPrice;
+  const hasDaxingAirportLine = lineNames.some(n => /大兴机场线/.test(n));
+  if (!hasDaxingAirportLine) return rawPrice;
+  // 大兴机场线（草桥-大兴机场）全长约 41 km，固定票价 35 元
+  const normalKm = Math.max(0, totalKm - 41);
+  const normalFare = normalKm <= 3 ? 0 : beijingSubwayFare(normalKm);
+  return 35 + normalFare;
+}
+
 // ---------- 高德 ----------
 const geoCache = new Map(); // 同 isolate 内缓存地理编码，省免费额度（key 含城市提示以消歧义）
 
@@ -83,10 +121,11 @@ async function amapRoute(o, d, maptype, env) {
     const p = data?.route?.paths?.[0];
     if (p?.duration) {
       const tolls = p.tolls != null ? parseInt(p.tolls) : null;
-      return [Math.round(parseInt(p.duration) / 60), tolls];
+      const distance = p.distance != null ? parseInt(p.distance) : null;
+      return [Math.round(parseInt(p.duration) / 60), tolls, distance];
     }
   } catch (e) { /* ignore */ }
-  return [null, null];
+  return [null, null, null];
 }
 
 function lineShort(name) {
@@ -110,9 +149,10 @@ function parseTips(tips) {
   if (!tips) return [null, null, null];
   const t = parseTipsTime(tips);
   if (!t) return [null, null, tips];
-  if (/首|发车|发出/.test(tips)) return [t, null, tips];
-  if (/末|到站/.test(tips)) return [null, t, tips];
-  return [null, t, tips];
+  // 只有明确含“首/末”才认为是首末班时刻；“预计到站”等不是末班时间
+  if (/首/.test(tips)) return [t, null, tips];
+  if (/末/.test(tips)) return [null, t, tips];
+  return [null, null, tips];
 }
 
 async function amapTransit(o, d, cc1, cc2, strategy, env) {
@@ -128,7 +168,8 @@ async function amapTransit(o, d, cc1, cc2, strategy, env) {
       if (dur != null) {
         const mins = Math.max(1, Math.round(parseInt(dur) / 60));
         const fee = cost.transit_fee;
-        const price = fee != null ? parseInt(fee) : null;
+        let price = fee != null ? parseInt(fee) : null;
+        const totalDistanceKm = parseInt(t.distance || 0) / 1000;
         const lines = [];
         const lineDetails = [];
         let cumOffset = 0;
@@ -156,6 +197,7 @@ async function amapTransit(o, d, cc1, cc2, strategy, env) {
           });
           cumOffset += busDur;
         }
+        price = fixBeijingAirportSubwayPrice(price, totalDistanceKm, lines);
         return [mins, price, lines.length ? lines.join(" → ") : null, lineDetails];
       }
     }
@@ -173,15 +215,17 @@ async function segMode(a, b, mode, city, env) {
       const maptype = { "打车": "driving", "自驾": "driving", "步行": "walking" }[mode];
       const o = await amapGeocode(a, env, city), d = await amapGeocode(b, env, city);
       if (o?.location && d?.location) {
-        const [m, tolls] = await amapRoute(o.location, d.location, maptype, env);
+        const [m, tolls, distance] = await amapRoute(o.location, d.location, maptype, env);
         if (m) {
-          const km = m / 60 * SPEED[mode];
+          const km = distance != null ? distance / 1000 : (m / 60 * SPEED[mode]);
           let price, psrc;
-          if (mode === "自驾") {
+          if (mode === "打车") {
+            price = taxiFare(city, km, m); psrc = "est";
+          } else if (mode === "自驾") {
             const fuel = Math.round(0.6 * km);
             if (tolls) { price = tolls + fuel; psrc = "real"; }
             else { price = estPrice(mode, km); psrc = "sim"; }
-          } else { price = estPrice(mode, km); psrc = "sim"; }
+          } else { price = 0; psrc = "sim"; }
           return [m, price, psrc, "map", null, []];
         }
       }
@@ -402,6 +446,7 @@ export async function computePlan(body, env) {
       routeTotal += r.mins; price += r.price;
       if (r.route_src === "map") routeSrc = "map";
       if (r.price_src === "real") priceSrc = "real";
+      else if (r.price_src === "est" && priceSrc !== "real") priceSrc = "est";
     }
     price = Math.round(price);
     const transfers = estTransfers(mode, routeTotal);
@@ -414,14 +459,34 @@ export async function computePlan(body, env) {
       for (const s of segments) {
         for (const ld of (s.routes[mode].line_details || [])) {
           const start = ld.start, end = ld.end;
-          if (!start && !end) continue;
+          const boardingDt = new Date(latestDt.getTime() + (ld.boarding_offset || 0) * 1000);
+          if (!start && !end) {
+            // 高德没给首末班时间：按常识兜底提示
+            const h = boardingDt.getHours();
+            const full = ld.full_name || "";
+            const short = ld.short_name || lineShort(full) || "";
+            const isAirportBus = /机场巴士|机场大巴|机场线/.test(full + short);
+            let risk = false, reason = "";
+            if (isAirportBus && h < 5) { risk = true; reason = "机场大巴通常 05:00 后开班"; }
+            else if (mode === "公交" && h < 5) { risk = true; reason = "公交通常 05:00 后开班"; }
+            else if (mode === "地铁" && h < 5) { risk = true; reason = "地铁通常 05:00 后开班"; }
+            else if (h >= 23) { risk = true; reason = "末班通常 23:00 前后"; }
+            if (risk) {
+              serviceWarning = true;
+              serviceLines.push({
+                name: short || full, full_name: full,
+                start: "", end: "", boarding_at: hhmm(boardingDt), tips: ld.tips || "",
+                time_source: "heuristic", risk: true, reason,
+              });
+            }
+            continue;
+          }
           let sh, sm, eh, em;
           if (start) [sh, sm] = start.split(":").map(Number);
           if (end) [eh, em] = end.split(":").map(Number);
           let startDt = start ? new Date(latestDt.getFullYear(), latestDt.getMonth(), latestDt.getDate(), sh, sm) : null;
           let endDt = end ? new Date(latestDt.getFullYear(), latestDt.getMonth(), latestDt.getDate(), eh, em) : null;
           if (startDt && endDt && endDt < startDt) endDt = new Date(endDt.getTime() + 86400000);
-          const boardingDt = new Date(latestDt.getTime() + (ld.boarding_offset || 0) * 1000);
           const atRisk = (startDt && boardingDt < startDt) || (endDt && boardingDt > endDt);
           if (atRisk) {
             serviceWarning = true;
