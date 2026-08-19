@@ -1,0 +1,8 @@
+name = "ontime"
+pages_build_output_dir = "public"
+# 说明：高德 / OpenWeather 的 Key 属于密钥，不要写进本文件（会被提交到 Git）。
+# 请用 `wrangler secret put MAP_KEY` 设置，或在 Cloudflare 控制台
+#   Pages 项目 → Settings → Environment variables 里添加（勾选 Encrypt）。
+# 这里仅放非敏感的默认值。
+[vars]
+# 非密钥占位（如需本地无 Key 跑演示模式，可留空）

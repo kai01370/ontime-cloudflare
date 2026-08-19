@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>准点到达 OnTime · 逆向出行规划</title>
+<style>
+  :root {
+    --cream: #FAFAFA; --cream2: #F5F5F5; --card: #FFFFFF;
+    --ink: #1A1A1A; --ink2: #555555; --muted: #8A8A8A; --line: #ECECEC;
+    --blue: #002FA7; --blue2: #1A4BC6; --blue3: #E5EAFA; --blue-light: #F0F4FF;
+    --pink: #D4A09C; --pink2: #F9EEED;
+    --warn: #FFB84D; --warn2: #FFF4E0; --bad: #FF7B7B; --bad2: #FFE8E8;
+    --shadow: 0 2px 12px rgba(0,0,0,.04); --shadow2: 0 4px 16px rgba(0,47,167,.14);
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; padding:0; min-height:100%; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: var(--ink); background: var(--cream); line-height: 1.55; -webkit-font-smoothing: antialiased;
+  }
+  .app { max-width: 460px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column;
+    padding: 24px 22px 40px; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 18px; letter-spacing: .3px; }
+  .logo-mark { width: 30px; height: 30px; border-radius: 50%;
+    background: var(--blue);
+    display: grid; place-items: center; color: #fff; font-size: 15px; }
+  .top-right { display: flex; align-items: center; gap: 8px; }
+  .lang-btn { font-size: 12px; padding: 5px 11px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--cream2); color: var(--ink2); font-family: inherit; }
+  .lang-btn:hover { border-color: var(--blue); color: var(--blue); }
+
+  .screen { display: none; }
+  .screen.active { display: block; animation: popIn .4s cubic-bezier(.22,1,.36,1); }
+  @keyframes popIn { from { opacity: 0; transform: translateY(16px) scale(.98); } to { opacity: 1; transform: none; } }
+
+  .card { background: var(--card); border-radius: 22px; box-shadow: var(--shadow);
+    border: 1px solid var(--line); padding: 32px 26px 30px; }
+  .illustration { width: 140px; height: 100px; margin: 0 auto 18px; }
+  .illustration svg { width: 100%; height: 100%; }
+  h1 { font-size: 26px; font-weight: 700; margin: 0 0 10px; letter-spacing: -.3px; text-align: center; line-height: 1.35; }
+  .lead { color: var(--ink2); font-size: 14px; margin: 0 0 26px; text-align: center; }
+  .feat { margin: 24px 0 6px; border-top: 1px solid var(--line); padding-top: 22px; text-align: left; }
+  .feat-item { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 18px; }
+  .feat-item:last-child { margin-bottom: 0; }
+  .feat-ico { font-size: 20px; line-height: 1.3; flex: none; }
+  .feat-t { font-size: 14px; font-weight: 700; color: var(--ink); }
+  .feat-d { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+  h2 { font-size: 20px; font-weight: 700; margin: 0 0 6px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 10px; line-height: 1.7; }
+  .hint b { color: var(--blue); font-weight: 600; }
+
+  label.main-label { display: block; font-size: 13px; color: var(--muted); margin: 16px 0 8px; }
+  .field { position: relative; }
+  .suggest { position: absolute; left: 0; right: 0; top: calc(100% + 4px); background: #fff;
+    border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow2);
+    z-index: 30; max-height: 248px; overflow: auto; display: none; }
+  .suggest.show { display: block; }
+  .suggest-item { padding: 11px 14px; cursor: pointer; border-bottom: 1px solid var(--line); }
+  .suggest-item:last-child { border-bottom: none; }
+  .suggest-item:hover, .suggest-item.active { background: var(--blue-light); }
+  .suggest-item .s-name { font-size: 14px; font-weight: 600; }
+  .suggest-item .s-addr { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .suggest-empty { padding: 12px 14px; color: var(--muted); font-size: 13px; }
+  input[type="text"], input[type="datetime-local"] {
+    width: 100%; padding: 15px 16px; border-radius: 14px; border: 1px solid var(--line);
+    background: #fff; color: var(--ink); font-size: 16px; font-family: inherit;
+    outline: none; transition: .2s;
+  }
+  input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-light); }
+  input::placeholder { color: #BBBBB0; }
+
+  .via-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+  .via-row { display: flex; gap: 8px; align-items: center; }
+  .via-row input { flex: 1; }
+  .via-row .remove { width: 34px; height: 34px; border-radius: 50%; border: none;
+    background: var(--pink2); color: var(--pink); font-size: 18px; cursor: pointer; flex: none; }
+  .add-via { display: inline-flex; align-items: center; gap: 5px; margin-top: 12px;
+    background: transparent; border: 1px dashed var(--line); color: var(--ink2);
+    padding: 9px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; transition: .2s; }
+  .add-via:hover { border-color: var(--blue); color: var(--blue); }
+
+  .scene-box { display: inline-flex; align-items: center; gap: 10px;
+    background: var(--cream2); border-radius: 999px; padding: 6px; border: 1px solid var(--line); margin-top: 6px; }
+  .scene-box button { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line);
+    background: #fff; color: var(--blue); font-size: 20px; cursor: pointer; }
+  .scene-box input { width: 60px; text-align: center; border: none; background: transparent;
+    font-size: 18px; font-weight: 700; color: var(--ink); }
+
+  .actions { margin-top: 24px; display: flex; gap: 10px; }
+  .btn { flex: 1; border: none; cursor: pointer; font-size: 16px; font-weight: 600;
+    padding: 15px 18px; border-radius: 14px; font-family: inherit; transition: .2s; }
+  .btn-primary { background: var(--blue); color: #fff; }
+  .btn-primary:hover { background: var(--blue2); }
+  .btn-primary:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+  .btn-ghost { background: var(--cream2); color: var(--ink2); border: 1px solid var(--line); }
+  .btn-ghost:hover { background: var(--line); }
+  .btn-start { padding: 17px 22px; border-radius: 999px; font-size: 17px; width: 100%; }
+
+  /* result */
+  .result-tabs { display:flex; gap:6px; background:var(--cream2); border:1px solid var(--line); border-radius:14px; padding:5px; margin-bottom:16px; }
+  .rtab { flex:1; border:none; background:transparent; padding:11px; border-radius:10px; font-size:14px; font-weight:600; color:var(--ink2); cursor:pointer; font-family:inherit; transition:.2s; }
+  .rtab.active { background:#fff; color:var(--blue); box-shadow:var(--shadow); }
+  .tab-pane { display:none; }
+  .tab-pane.active { display:block; animation:popIn .35s cubic-bezier(.22,1,.36,1); }
+  .result-hero { text-align: center; background: var(--blue-light);
+    border-radius: 18px; padding: 26px 18px 22px; margin-bottom: 16px; }
+  .result-hero .time { font-size: 38px; font-weight: 800; color: var(--blue); letter-spacing: -1px; }
+  .result-hero .time-label { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .result-hero .summary { font-size: 14px; color: var(--ink2); margin-top: 10px; }
+  .hero-meta { display: flex; align-items: baseline; justify-content: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  .result-hero .hero-mode { font-size: 20px; font-weight: 600; color: var(--ink2); }
+  .result-hero .hero-price { font-size: 20px; font-weight: 800; color: var(--ink2); }
+  .warn-bar { border-radius: 16px; padding: 13px 16px; font-size: 13px; line-height: 1.7;
+    margin-bottom: 14px; display: none; }
+  .warn-bar.red { background: var(--bad2); color: #C23B3B; display: block; }
+  .warn-bar.orange { background: var(--warn2); color: #A36A00; display: block; }
+  .adv { background: var(--cream2); border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px; margin-bottom: 16px; }
+  .adv-head { display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; }
+  .adv-title { font-size: 13px; font-weight: 700; color: var(--ink); }
+  .adv-head .chev { color: var(--muted); font-size: 12px; transition: .2s; }
+  .adv.open .adv-head .chev { transform: rotate(90deg); }
+  .adv-body { display: none; margin-top: 14px; }
+  .adv.open .adv-body { display: block; }
+  .adv-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .adv-label { font-size: 13px; color: var(--ink2); font-weight: 600; display: flex; flex-direction: column; gap: 2px; }
+  .adv-sub { font-size: 11px; color: var(--muted); font-weight: 400; }
+  .adv .scene-box input { width: 52px; }
+  .adv-recalc { width: 100%; margin-top: 2px; border-radius: 14px; }
+  .switch { position: relative; display: inline-block; width: 46px; height: 26px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; cursor: pointer; inset: 0; background: #DADADA; border-radius: 999px; transition: .25s; }
+  .slider::before { content: ""; position: absolute; height: 20px; width: 20px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .25s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+  .switch input:checked + .slider { background: var(--blue); }
+  .switch input:checked + .slider::before { transform: translateX(20px); }
+  .mode-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .mode-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 9px 6px; border-bottom: 1px solid var(--line); }
+  .mode-table td { padding: 11px 6px; border-bottom: 1px solid var(--line); }
+  .mode-table tr:last-child td { border-bottom: none; }
+  .tag { font-size: 11px; padding: 3px 8px; border-radius: 999px; font-weight: 600; }
+  .tag.ok { background: var(--blue-light); color: var(--blue); }
+  .tag.bad { background: var(--bad2); color: #C23B3B; }
+  .tag.star { background: var(--blue); color: #fff; margin-left: 4px; }
+  .seg-note { font-size: 12px; color: var(--muted); margin-top: 14px; line-height: 1.8; }
+
+  /* 排序栏 */
+  .sortbar { display: flex; align-items: center; gap: 8px; margin: 18px 0 12px; flex-wrap: wrap; }
+  .sortbar .slabel { font-size: 12px; color: var(--muted); margin-right: 2px; }
+  .sort-btn { font-size: 12px; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--cream2); color: var(--ink2); font-family: inherit; transition: .2s; }
+  .sort-btn:hover { border-color: var(--blue); color: var(--blue); }
+  .sort-btn.active { background: var(--blue-light); color: var(--blue); border-color: var(--blue3); font-weight: 600; }
+
+  /* 方式卡片 */
+  .mode-card { background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 16px; margin-bottom: 10px; transition: .2s; }
+  .mode-card.late { border-color: #FFD0D0; background: #FFF6F6; }
+  .mode-card.rec { border-color: var(--blue3); box-shadow: 0 2px 10px rgba(0,47,167,.08); }
+  .mc-top { display: flex; align-items: center; justify-content: space-between; }
+  .mc-name { font-size: 16px; font-weight: 700; }
+  .mc-name .star { color: var(--blue); font-size: 13px; margin-left: 4px; }
+  .mc-late { font-size: 12px; color: #C23B3B; font-weight: 600; }
+  .mc-stats { display: flex; gap: 8px; margin-top: 10px; }
+  .mc-stats > div { flex: 1; background: #FAFAFA; border-radius: 10px; padding: 8px 6px; text-align: center; }
+  .mc-stats .t { font-size: 11px; color: var(--muted); }
+  .mc-stats .v { font-size: 16px; font-weight: 700; margin-top: 2px; }
+  .mc-foot { font-size: 13px; color: var(--ink2); margin-top: 10px; }
+  .mc-foot b { color: var(--blue); font-weight: 700; }
+  .mc-lines { font-size: 13px; color: var(--blue); font-weight: 600; margin-top: 10px; }
+  .mc-warn { font-size: 12px; color: #A36A00; background: var(--warn2); border-radius: 8px; padding: 8px 10px; margin-top: 10px; line-height: 1.5; }
+
+  footer { text-align: center; color: var(--muted); font-size: 11px; margin-top: 20px; }
+
+  @media (max-width: 360px) {
+    .app { padding: 18px 16px 26px; }
+    .card { padding: 22px 18px 20px; border-radius: 24px; }
+    h1 { font-size: 23px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand"><div class="logo-mark">🧭</div>OnTime</div>
+      <div class="top-right">
+        <button class="lang-btn" id="langBtn" onclick="toggleLang()">EN</button>
+      </div>
+  </div>
+
+  <!-- 欢迎页 -->
+  <div class="screen active" id="screen-welcome">
+    <div class="card">
+      <div class="illustration" aria-hidden="true">
+        <svg viewBox="0 0 140 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M30 72c-4 0-8-3-8-8V44c0-5 4-8 8-8h18c4 0 8 3 8 8v20c0 5-4 8-8 8H30z" fill="#FCE8EF" stroke="#F5A9C2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M39 36c0-8 6-14 13-14" stroke="#002FA7" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M43 32c3-1 6 0 8 2" stroke="#002FA7" stroke-width="2.2" stroke-linecap="round"/>
+          <ellipse cx="39" cy="74" rx="13" ry="4" fill="#F5A9C2" opacity=".35"/>
+          <circle cx="88" cy="40" r="18" fill="#F0F4FF" stroke="#1A4BC6" stroke-width="2.2"/>
+          <path d="M88 30v10l7 5" stroke="#002FA7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="88" cy="40" r="22" stroke="#B8C6E8" stroke-width="1.5" stroke-dasharray="4 4"/>
+          <path d="M117 84c-8-12-18-18-28-18s-20 6-28 18" stroke="#B8C6E8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M117 84l-4-2 2 5-5-1" stroke="#002FA7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="125" cy="62" r="6" fill="#E5EAFA"/>
+          <path d="M122 62l2 2 4-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h1 data-i18n="welcomeTitle">OnTime</h1>
+      <p class="lead" data-i18n="welcomeLead">输入到达时间，倒推最晚出发。</p>
+      <div class="feat">
+        <div class="feat-item"><span class="feat-ico">🧭</span><div><div class="feat-t" data-i18n="feat1t">逆推最晚出发</div><div class="feat-d" data-i18n="feat1d">输入到达时间，自动算出几点出门</div></div></div>
+        <div class="feat-item"><span class="feat-ico">🚌</span><div><div class="feat-t" data-i18n="feat2t">5 种方式对比</div><div class="feat-d" data-i18n="feat2d">地铁 / 公交 / 打车 / 自驾 / 步行</div></div></div>
+        <div class="feat-item"><span class="feat-ico">⏰</span><div><div class="feat-t" data-i18n="feat3t">真实时刻提醒</div><div class="feat-d" data-i18n="feat3d">首末班车 + 天气缓冲，不误车</div></div></div>
+      </div>
+      <div class="actions" style="justify-content:center;">
+        <button class="btn btn-primary btn-start" onclick="showMain()">开始规划</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主输入页 -->
+  <div class="screen" id="screen-main">
+    <div class="card">
+      <h2 data-i18n="formTitle">规划一次准点出行</h2>
+      <p class="hint" data-i18n="formSub">从到达时间倒推，算出你最晚几点出门。</p>
+
+      <label class="main-label" data-i18n="originLabel">出发地</label>
+      <div class="field">
+        <input type="text" id="origin" autocomplete="off" data-i18n-ph="originPh" placeholder="例如：家 / 中关村 SOHO" />
+        <div class="suggest" id="suggest-origin"></div>
+      </div>
+
+      <label class="main-label" data-i18n="destLabel">目的地</label>
+      <div class="field">
+        <input type="text" id="dest" autocomplete="off" data-i18n-ph="destPh" placeholder="例如：首都机场 T3 / 北京南站" />
+        <div class="suggest" id="suggest-dest"></div>
+      </div>
+
+      <label class="main-label" data-i18n="viaLabel">中途要办点事吗？（可选）</label>
+      <div class="via-list" id="viaList"></div>
+      <button class="add-via" id="addViaBtn" onclick="addVia()">+ 添加途经点</button>
+
+      <label class="main-label" data-i18n="timeLabel">到达 deadline</label>
+      <input type="datetime-local" id="deadline" />
+
+      <div class="actions">
+        <button class="btn btn-primary" id="goBtn" onclick="submitPlan()">生成出行方案</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 结果页（独立） -->
+  <div class="screen" id="screen-result">
+    <div id="resultContent"></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="editTrip()">修改行程</button>
+      <button class="btn btn-primary" onclick="resetAll()">重新规划</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const I18N = {
+    zh: {
+      welcomeTitle:'OnTime',
+      welcomeLead:'输入到达时间，倒推最晚出发。',
+      feat1t:'逆推最晚出发', feat1d:'输入到达时间，自动算出几点出门',
+      feat2t:'5 种方式对比', feat2d:'地铁 / 公交 / 打车 / 自驾 / 步行',
+      feat3t:'真实时刻提醒', feat3d:'首末班车 + 天气缓冲，不误车',
+      formTitle:'规划一次准点出行', formSub:'从到达时间倒推，算出你最晚几点出门。',
+      originLabel:'出发地', originPh:'例如：家 / 中关村 SOHO',
+      destLabel:'目的地', destPh:'例如：首都机场 T3 / 北京南站',
+      viaLabel:'中途要办点事吗？（可选）',
+      viaAdd:'+ 添加途经点', viaAdded:'+ 再加一个途经点', viaFull:'途经点已满（最多 2 个）',
+      viaPh:'例如：取证件 / 接人',
+      timeLabel:'到达 deadline', sceneLabel:'场景缓冲（硬 deadline 留白）',
+      sceneHint:'针对找路偏差、排队等突发预留，建议至少 15 分钟。',
+      submit:'生成出行方案', edit:'修改行程', restart:'重新规划',
+      leaveLabel:'最晚出发时间', tabConclude:'结论', tabPlan:'方案', tInternal:'内部流程', tScene:'场景缓冲', tWeather:'天气缓冲',
+      colMode:'方式', colRoute:'路程', colLeave:'最晚出发', colStatus:'状态',
+      rec:'推荐', ok:'保准到', late:'迟到', heroMode:'出行方式', heroPrice:'价格', foot:'准点到达 OnTime · 我的 AI 应用作品', lang:'EN',
+      sortLabel:'排序', sortRec:'推荐', sortPrice:'价格↑', sortTime:'用时↑', sortTrans:'换乘⬆',
+      cTime:'用时', cPrice:'价格', cTrans:'换乘', cLeave:'最晚出门', lateNote:'会迟到', transferUnit:'次',
+      advTitle:'可调缓冲', recalc:'重新计算',
+      detailTitle:'路线详情', simBadge:'示意·模拟',
+      serviceWarn:'以下线路首末班时间可能无法满足您的出发时间，请确认：'
+    },
+    en: {
+      welcomeTitle:'OnTime',
+      welcomeLead:'Enter your arrival deadline — we reverse-calculate your latest departure.',
+      feat1t:'Reverse your departure', feat1d:'Enter arrival time, we compute when to leave',
+      feat2t:'Compare 5 modes', feat2d:'Metro / bus / taxi / drive / walk',
+      feat3t:'Real-time alerts', feat3d:'First/last train + weather buffer',
+      formTitle:'Plan a punctual trip', formSub:'Reverse from your arrival time to find when to leave.',
+      originLabel:'From', originPh:'e.g. Home / Zhongguancun',
+      destLabel:'Destination', destPh:'e.g. Capital Airport T3 / Beijing South',
+      viaLabel:'Any stops on the way? (optional)',
+      viaAdd:'+ Add a stop', viaAdded:'+ Add another stop', viaFull:'Max 2 stops reached',
+      viaPh:'e.g. pick up documents',
+      timeLabel:'Arrival deadline', sceneLabel:'Buffer (slack for hard deadlines)',
+      sceneHint:'Reserve for detours, queues, etc. At least 15 min recommended.',
+      submit:'Plan my trip', edit:'Edit trip', restart:'Plan again',
+      leaveLabel:'Latest departure', tabConclude:'Summary', tabPlan:'Options', tInternal:'Internal', tScene:'Buffer', tWeather:'Weather',
+      colMode:'Mode', colRoute:'Time', colLeave:'Latest leave', colStatus:'Status',
+      rec:'Best', ok:'On time', late:'Late', heroMode:'Mode', heroPrice:'Price', foot:'OnTime · my AI app', lang:'中',
+      sortLabel:'Sort', sortRec:'Best', sortPrice:'Price↑', sortTime:'Duration↑', sortTrans:'Transfers⬆',
+      cTime:'Time', cPrice:'Price', cTrans:'Transfers', cLeave:'Leave by', lateNote:'late by', transferUnit:'x',
+      advTitle:'Adjustable buffers', recalc:'Recalculate',
+      detailTitle:'Route details', simBadge:'illustrative',
+      serviceWarn:'The following lines may not be available at your departure time. Please check:'
+    }
+  };
+  let lang = 'zh';
+  const T = k => (I18N[lang][k] ?? k);
+
+  function applyLang(){
+    document.documentElement.lang = (lang === 'zh') ? 'zh-CN' : 'en';
+    document.querySelectorAll('[data-i18n]').forEach(el => { el.innerHTML = T(el.getAttribute('data-i18n')); });
+    document.querySelectorAll('[data-i18n-ph]').forEach(el => { el.placeholder = T(el.getAttribute('data-i18n-ph')); });
+    document.getElementById('langBtn').textContent = T('lang');
+    renderViaList();
+    // 若已有结果，刷新结果文案
+    if (document.getElementById('screen-result').classList.contains('active')) { renderResult(currentData); setSort(sortKey); }
+  }
+  function toggleLang(){ lang = (lang === 'zh') ? 'en' : 'zh'; applyLang(); }
+
+  const state = { origin:'', destination:'', deadline:'', via:[], scene_buffer:15 };
+  let vias = [];
+  let currentData = null;
+  let lastReq = null;
+  let sortKey = 'time';
+  let currentTab = 'conclude';
+
+  (function(){
+    const d = new Date(); d.setDate(d.getDate()+1); d.setHours(9,0,0,0);
+    const p = n => String(n).padStart(2,'0');
+    document.getElementById('deadline').value = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  })();
+
+  function goto(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    document.getElementById(id).classList.add('active'); window.scrollTo(0,0); }
+  function showMain(){ goto('screen-main'); }
+  function editTrip(){ goto('screen-main'); }
+
+  function attachSuggest(inputId, boxId){
+    const inp = document.getElementById(inputId);
+    const box = document.getElementById(boxId);
+    let timer = null;
+    const hide = () => { box.classList.remove('show'); box.innerHTML = ''; };
+    function render(items){
+      if (!items.length){ hide(); return; }
+      box.innerHTML = items.map(it =>
+        `<div class="suggest-item"><div class="s-name">${it.name}</div>${it.address ? `<div class="s-addr">${it.address}</div>` : ''}</div>`
+      ).join('');
+      box.querySelectorAll('.suggest-item').forEach((el, idx) => {
+        el.addEventListener('mousedown', e => { e.preventDefault(); inp.value = items[idx].name; hide(); });
+      });
+      box.classList.add('show');
+    }
+    inp.addEventListener('input', () => {
+      clearTimeout(timer);
+      const q = inp.value.trim();
+      if (q.length < 1){ hide(); return; }
+      timer = setTimeout(async () => {
+        try {
+          const res = await fetch('/api/suggest?q=' + encodeURIComponent(q));
+          const data = await res.json();
+          render(data.items || []);
+        } catch(e){ hide(); }
+      }, 300);
+    });
+    inp.addEventListener('blur', () => setTimeout(hide, 150));
+  }
+
+  function renderViaList(){
+    const box = document.getElementById('viaList');
+    box.innerHTML = '';
+    vias.forEach((val, i) => {
+      const row = document.createElement('div'); row.className='via-row';
+      row.innerHTML = `<input type="text" placeholder="${T('viaPh')}" value="${val}" oninput="vias[${i}]=this.value.trim()" />
+        <button class="remove" onclick="removeVia(${i})">×</button>`;
+      box.appendChild(row);
+    });
+    const btn = document.getElementById('addViaBtn');
+    if (vias.length < 2) { btn.style.display='inline-flex'; btn.textContent = vias.length ? T('viaAdded') : T('viaAdd'); }
+    else { btn.style.display='none'; }
+  }
+  function addVia(){ if (vias.length < 2) { vias.push(''); renderViaList(); document.querySelector('#viaList .via-row:last-child input')?.focus(); } }
+  function removeVia(i){ vias.splice(i,1); renderViaList(); }
+
+  function changeScene(delta){
+    const el = document.getElementById('scene');
+    let v = parseInt(el.value || '0', 10) + delta;
+    if (v < 0) v = 0; if (v > 120) v = 120;
+    el.value = v;
+  }
+
+  async function submitPlan(){
+    const origin = document.getElementById('origin').value.trim();
+    const dest = document.getElementById('dest').value.trim();
+    const dt = document.getElementById('deadline').value;
+    if (!dest) { document.getElementById('dest').focus(); return; }
+    if (!dt) { document.getElementById('deadline').focus(); return; }
+    const body = {
+      origin: origin || '当前位置',
+      destination: dest,
+      deadline: dt.replace('T',' '),
+      via: vias.map(v => v.trim()).filter(Boolean),
+      scene_buffer: 15
+    };
+    const btn = document.getElementById('goBtn');
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      const res = await fetch('/api/plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '请求失败');
+      currentData = data;
+      lastReq = body;
+      sortKey = 'time';
+      currentTab = 'conclude';
+      renderResult(data);
+      goto('screen-result');
+    } catch(e) { alert('出错了：' + e.message); }
+    finally { btn.disabled = false; btn.textContent = T('submit'); }
+  }
+
+  function fmtPrice(p){
+    if (p <= 0) return (lang === 'zh') ? '免费' : 'Free';
+    if (lang === 'zh') return '¥' + p;
+    return '¥' + p; // 价格以人民币计
+  }
+
+  function sortModes(d, key){
+    const arr = d.modes.slice();
+    if (key === 'price') arr.sort((a,b)=> a.price - b.price);
+    else arr.sort((a,b)=> (b.mode === d.recommend.mode) - (a.mode === d.recommend.mode) || a.route - b.route);
+    return arr;
+  }
+
+  function cardHtml(m, d){
+    const star = m.mode === d.recommend.mode;
+    const lateNote = (!m.ontime) ? `<span class="mc-late">⚠ ${T('lateNote')} ${m.late} 分</span>` : '';
+    const hasRoute = (m.mode === '地铁' || m.mode === '公交');   // 仅地铁/公交显示具体线路
+    const cls = (m.ontime ? '' : 'late ') + (star ? 'rec ' : '');
+    const linesHtml = (hasRoute && m.lines) ? `<div class="mc-lines">${m.mode === '地铁' ? '🚇' : '🚌'} ${m.lines}</div>` : '';
+    let svcWarn = '';
+    if (m.service_warning && m.service_lines && m.service_lines.length) {
+      const items = m.service_lines.map(ln => {
+        const tip = ln.tips ? `<br><span style="opacity:.85">${ln.tips}</span>` : '';
+        const estimated = ln.time_source === 'tips' ? '（预计）' : '';
+        const se = [];
+        if (ln.start) se.push(`首班 ${ln.start}${estimated}`);
+        if (ln.end) se.push(`末班 ${ln.end}${estimated}`);
+        return `<div style="margin-top:6px">• <b>${ln.name}</b> ${se.join(' / ')}（您约 ${ln.boarding_at} 到站）${tip}</div>`;
+      }).join('');
+      svcWarn = `<div class="mc-warn">⚠ ${T('serviceWarn')}${items}</div>`;
+    }
+    return `<div class="mode-card ${cls.trim()}">
+      <div class="mc-top">
+        <span class="mc-name">${m.mode}${star ? `<span class="star">★</span>` : ''}</span>
+        ${lateNote}
+      </div>
+      <div class="mc-stats">
+        <div><div class="t">${T('cTime')}</div><div class="v">${m.route} 分</div></div>
+        <div><div class="t">${T('cPrice')}</div><div class="v">${fmtPrice(m.price)}</div></div>
+      </div>
+      ${linesHtml}
+      ${svcWarn}
+      <div class="mc-foot">${T('cLeave')} <b>${m.latest_leave}</b></div>
+    </div>`;
+  }
+
+  function renderModeCards(){
+    if (!currentData) return;
+    document.getElementById('modeCards').innerHTML =
+      sortModes(currentData, sortKey).map(m => cardHtml(m, currentData)).join('');
+  }
+
+  function stepBuf(which, delta){
+    const el = document.getElementById(which === 'scene' ? 'sceneInput' : 'internalInput');
+    if (!el) return;
+    let v = parseInt(el.value || '0', 10) + delta;
+    if (v < 0) v = 0; if (v > 240) v = 240;
+    el.value = v;
+  }
+
+  async function recalc(){
+    if (!lastReq) return;
+    const btn = document.querySelector('.adv-recalc');
+    btn.disabled = true; btn.textContent = '…';
+    const body = {
+      ...lastReq,
+      scene_buffer: parseInt(document.getElementById('sceneInput').value || '15', 10),
+      internal_buffer: parseInt(document.getElementById('internalInput').value || '0', 10),
+      weather_on: document.getElementById('weatherToggle').checked
+    };
+    try {
+      const res = await fetch('/api/plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '请求失败');
+      currentData = data;
+      lastReq = body;
+      renderResult(data);
+      document.getElementById('screen-result').scrollIntoView({ behavior:'smooth' });
+    } catch(e) { alert('出错了：' + e.message); }
+    finally { btn.disabled = false; btn.textContent = T('recalc'); }
+  }
+
+  function toggleAdv(){
+    document.getElementById('advPanel').classList.toggle('open');
+  }
+
+  function setSort(k){
+    sortKey = k;
+    document.querySelectorAll('.sort-btn').forEach(b => b.classList.toggle('active', b.dataset.sort === k));
+    renderModeCards();
+  }
+
+  function switchTab(tab){
+    currentTab = tab;
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + tab));
+    document.querySelectorAll('.rtab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  }
+
+  function renderResult(d){
+    const warnClass = d.warning && d.warning.includes('任何方式') ? 'red' : 'orange';
+    const warnHtml = d.warning ? `<div class="warn-bar ${warnClass}">${d.warning}</div>` : '';
+    document.getElementById('resultContent').innerHTML = `
+      <div class="result-tabs">
+        <button class="rtab ${currentTab==='conclude'?'active':''}" data-tab="conclude" onclick="switchTab('conclude')">${T('tabConclude')}</button>
+        <button class="rtab ${currentTab==='plan'?'active':''}" data-tab="plan" onclick="switchTab('plan')">${T('tabPlan')}</button>
+      </div>
+      <div class="tab-pane ${currentTab==='conclude'?'active':''}" id="pane-conclude">
+        <div class="result-hero">
+          <div class="time">${d.recommend.leave}</div>
+          <div class="time-label">${T('leaveLabel')}</div>
+          <div class="hero-meta">
+            <span class="hero-mode">${T('heroMode')} · ${d.recommend.mode}</span>
+            <span class="hero-price">${T('heroPrice')} ${fmtPrice(d.recommend.price)}</span>
+          </div>
+        </div>
+        ${warnHtml}
+        <div class="adv open" id="advPanel">
+          <div class="adv-head" onclick="toggleAdv()">
+            <span class="adv-title">⚙ ${T('advTitle')}</span>
+            <span class="chev">▸</span>
+          </div>
+          <div class="adv-body">
+            <div class="adv-row">
+              <span class="adv-label">${T('tScene')}</span>
+              <div class="scene-box" style="margin-top:0;">
+                <button type="button" onclick="stepBuf('scene',-5)">−</button>
+                <input id="sceneInput" type="text" value="${d.scene_buffer}" readonly />
+                <button type="button" onclick="stepBuf('scene',5)">+</button>
+              </div>
+            </div>
+            <div class="adv-row">
+              <span class="adv-label">${T('tInternal')}<span class="adv-sub">${d.internal.desc}</span></span>
+              <div class="scene-box" style="margin-top:0;">
+                <button type="button" onclick="stepBuf('internal',-5)">−</button>
+                <input id="internalInput" type="text" value="${d.internal.minutes}" readonly />
+                <button type="button" onclick="stepBuf('internal',5)">+</button>
+              </div>
+            </div>
+            <div class="adv-row">
+              <span class="adv-label">${T('tWeather')}<span class="adv-sub">${d.weather.desc}</span></span>
+              <label class="switch"><input id="weatherToggle" type="checkbox" ${d.weather.buffer>0?'checked':''} /><span class="slider"></span></label>
+            </div>
+            <button class="btn btn-primary adv-recalc" onclick="recalc()">${T('recalc')}</button>
+          </div>
+        </div>
+      </div>
+      <div class="tab-pane ${currentTab==='plan'?'active':''}" id="pane-plan">
+        <div class="sortbar">
+          <span class="slabel">${T('sortLabel')}</span>
+          <button class="sort-btn ${sortKey==='time'?'active':''}" data-sort="time" onclick="setSort('time')">${T('sortTime')}</button>
+          <button class="sort-btn ${sortKey==='price'?'active':''}" data-sort="price" onclick="setSort('price')">${T('sortPrice')}</button>
+        </div>
+        <div id="modeCards"></div>
+      </div>
+    `;
+    renderModeCards();
+  }
+
+  function resetAll(){
+    vias = []; renderViaList();
+    document.getElementById('origin').value='';
+    document.getElementById('dest').value='';
+    const d = new Date(); d.setDate(d.getDate()+1); d.setHours(9,0,0,0);
+    const p = n => String(n).padStart(2,'0');
+    document.getElementById('deadline').value = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+    document.getElementById('screen-result').classList.remove('active');
+    goto('screen-main');
+  }
+
+  applyLang();
+  attachSuggest('origin', 'suggest-origin');
+  attachSuggest('dest', 'suggest-dest');
+</script>
+</body>
+</html>
