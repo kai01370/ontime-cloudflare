@@ -2,7 +2,7 @@
 // 忠实移植自 FastAPI 版 app.py；用规则版内部缓冲替代 LLM 调用，以适配免费层（无超时/Key 依赖）。
 // 高德 / OpenWeather 的 Key 通过 env 注入，函数服务端调用，前端零 Key、绕开 CORS。
 
-export const MODES = ["打车", "地铁", "公交", "步行", "自驾"];
+export const MODES = ["打车", "地铁", "公交", "步行", "自驾", "骑行"];
 
 const SPEED = { "打车": 28, "自驾": 30, "地铁": 24, "公交": 17, "步行": 4.5, "骑行": 14 };
 const EXTRA = { "打车": 3, "自驾": 2, "地铁": 10, "公交": 6, "步行": 0, "骑行": 0 };
@@ -42,12 +42,20 @@ function simRoute(a, b, mode) {
   const d = fakeDistance(a, b);
   return Math.round(d / SPEED[mode] * 60 + EXTRA[mode]);
 }
+// 共享单车估算（基于骑行时长）：前 15 分钟约 ¥1.5，之后每 15 分钟约 ¥1
+function bikeShareFare(mins) {
+  mins = Math.max(0, mins);
+  const start = 1.5;
+  const extra = Math.ceil(Math.max(0, mins - 15) / 15) * 1.0;
+  return Math.round(start + extra);
+}
 function estPrice(mode, km) {
   km = Math.max(0, km);
   if (mode === "打车") return Math.round(13 + 2.6 * km) || 13;
   if (mode === "自驾") return Math.round(0.6 * km + 5);
   if (mode === "地铁") return Math.round(Math.min(3 + Math.max(0, km - 6) * 0.4, 11));
   if (mode === "公交") return Math.round(Math.min(2 + Math.max(0, km - 10) * 0.2, 4));
+  if (mode === "骑行") return bikeShareFare(Math.round(km / SPEED["骑行"] * 60));
   return 0;
 }
 function estTransfers(mode, routeMins) {
@@ -211,8 +219,8 @@ async function segMode(a, b, mode, city, env) {
     return [d, estPrice(mode, d / 60 * SPEED[mode]), "sim", "sim", null, []];
   }
   try {
-    if (["打车", "自驾", "步行"].includes(mode)) {
-      const maptype = { "打车": "driving", "自驾": "driving", "步行": "walking" }[mode];
+    if (["打车", "自驾", "步行", "骑行"].includes(mode)) {
+      const maptype = { "打车": "driving", "自驾": "driving", "步行": "walking", "骑行": "riding" }[mode];
       const o = await amapGeocode(a, env, city), d = await amapGeocode(b, env, city);
       if (o?.location && d?.location) {
         const [m, tolls, distance] = await amapRoute(o.location, d.location, maptype, env);
@@ -225,6 +233,8 @@ async function segMode(a, b, mode, city, env) {
             const fuel = Math.round(0.6 * km);
             if (tolls) { price = tolls + fuel; psrc = "real"; }
             else { price = estPrice(mode, km); psrc = "sim"; }
+          } else if (mode === "骑行") {
+            price = bikeShareFare(m); psrc = "est";
           } else { price = 0; psrc = "sim"; }
           return [m, price, psrc, "map", null, []];
         }
@@ -274,25 +284,34 @@ function simDetail(points, mode, transfers) {
       else steps.push(`乘坐约 ${stations} 站，留意到站广播 / 电子屏`);
       steps.push(`在离「${b}」最近的站点下车，步行到达`);
     }
-  } else {
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[i], b = points[i + 1];
-      const d = fakeDistance(a, b); const h = hashStr(`${a}->${b}|${mode}`);
-      if (["打车", "自驾"].includes(mode)) {
-        steps.push(`从「${a}」出发，进入主干道向${DIRS[h % 8]}方向行驶约 ${Math.round(d * 0.55)} 公里`);
-        if (d > 12) steps.push(`驶入城市快速路 / 高速，继续约 ${Math.round(d * 0.45)} 公里`);
-        steps.push(`从最近出口驶出，抵达「${b}」附近`);
-      } else {
-        const walkM = Math.max(300, Math.round(d * 1000 * 0.5));
-        steps.push(`从「${a}」向${DIRS[h % 8]}方向步行约 ${walkM} 米`);
-        steps.push(`沿人行道直行 / 按路牌指示，到达「${b}」`);
+    } else if (mode === "骑行") {
+      for (let i = 0; i < points.length - 1; i++) {
+        const a = points[i], b = points[i + 1];
+        const d = fakeDistance(a, b); const h = hashStr(`${a}->${b}|${mode}`);
+        const rideM = Math.max(300, Math.round(d * 1000 * 0.6));
+        steps.push(`从「${a}」向${DIRS[h % 8]}方向骑行约 ${rideM} 米`);
+        steps.push(`沿非机动车道 / 绿道骑行，到达「${b}」`);
+      }
+    } else {
+      for (let i = 0; i < points.length - 1; i++) {
+        const a = points[i], b = points[i + 1];
+        const d = fakeDistance(a, b); const h = hashStr(`${a}->${b}|${mode}`);
+        if (["打车", "自驾"].includes(mode)) {
+          steps.push(`从「${a}」出发，进入主干道向${DIRS[h % 8]}方向行驶约 ${Math.round(d * 0.55)} 公里`);
+          if (d > 12) steps.push(`驶入城市快速路 / 高速，继续约 ${Math.round(d * 0.45)} 公里`);
+          steps.push(`从最近出口驶出，抵达「${b}」附近`);
+        } else {
+          const walkM = Math.max(300, Math.round(d * 1000 * 0.5));
+          steps.push(`从「${a}」向${DIRS[h % 8]}方向步行约 ${walkM} 米`);
+          steps.push(`沿人行道直行 / 按路牌指示，到达「${b}」`);
+        }
       }
     }
-  }
   return [steps, lines];
 }
 async function amapSteps(o, d, maptype, env) {
-  const url = `https://restapi.amap.com/v3/direction/${maptype}?key=${env.MAP_KEY}&origin=${o}&destination=${d}&strategy=0`;
+  const strat = maptype === "riding" ? "" : "&strategy=0";
+  const url = `https://restapi.amap.com/v3/direction/${maptype}?key=${env.MAP_KEY}&origin=${o}&destination=${d}${strat}`;
   try {
     const data = await getJSON(url, 10000);
     const steps = data?.route?.paths?.[0]?.steps || [];
@@ -301,8 +320,8 @@ async function amapSteps(o, d, maptype, env) {
   } catch (e) { return null; }
 }
 async function buildDetail(points, mode, transfers, city, env) {
-  if (env.MAP_KEY && ["打车", "自驾", "步行"].includes(mode)) {
-    const maptype = { "打车": "driving", "自驾": "driving", "步行": "walking" }[mode];
+  if (env.MAP_KEY && ["打车", "自驾", "步行", "骑行"].includes(mode)) {
+    const maptype = { "打车": "driving", "自驾": "driving", "步行": "walking", "骑行": "riding" }[mode];
     const real = []; let ok = true;
     for (let i = 0; i < points.length - 1; i++) {
       const ao = await amapGeocode(points[i], env, city), ad = await amapGeocode(points[i + 1], env, city);
